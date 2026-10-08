@@ -846,6 +846,7 @@
           <label>Product</label>
           <select id="conversionsProductFilter" onchange="onConversionsProductChange()">
             <option value="Single">Txn-to-EMI</option>
+            <option value="Auth">Auth Txn-to-EMI</option>
             <option value="Multi">Multi-Txn-to-EMI</option>
             <option value="Outstanding">OS-to-EMI</option>
           </select>
@@ -874,7 +875,7 @@
           <option value="RCS">RCS</option>
         </select>
         <input type="text" id="fAccountIds" placeholder="Account IDs, comma-separated" oninput="onRequestsFilterChange()">
-        <input type="text" id="fAttemptIds" placeholder="EMI attempt IDs, comma-separated" oninput="onRequestsFilterChange()">
+        <input type="text" id="fSwitchAccountNos" placeholder="Switch account numbers, comma-separated" oninput="onRequestsFilterChange()">
         <label class="chk-wrap"><input type="checkbox" id="fStuck" onchange="onRequestsFilterChange()"> Stuck &gt; 24h</label>
         <button class="btn secondary small" onclick="clearFilters()">Clear filters</button>
       </div>
@@ -926,6 +927,7 @@
       <select id="bfType" onchange="onBatchesFilterChange()">
         <option value="">All products</option>
         <option value="Single">Txn-to-EMI</option>
+        <option value="Auth">Auth Txn-to-EMI</option>
         <option value="Multi">Multi-Txn-to-EMI</option>
         <option value="Outstanding">OS-to-EMI</option>
       </select>
@@ -997,6 +999,7 @@
           <label>Product</label>
           <select id="analyticsProductFilter" onchange="renderAnalytics()">
             <option value="Single">Txn-to-EMI</option>
+            <option value="Auth">Auth Txn-to-EMI</option>
             <option value="Multi">Multi-Txn-to-EMI</option>
             <option value="Outstanding">OS-to-EMI</option>
           </select>
@@ -1644,7 +1647,11 @@ function stagesFor(bank, type){
       ? ['ELIGIBILITY_CHECKED','CONSENT_REQUESTED','CONSENT_GIVEN','EMI_REQUESTED','BOOKING_FILE_SENT','CONFIRMATION_FILE_RECEIVED']
       : ['ELIGIBILITY_CHECKED','CONSENT_REQUESTED','CONSENT_GIVEN','BOOKING_INITIATED'];
   }
-  // Single (Txn-to-EMI) / Multi (Multi-Txn-to-EMI)
+  // Auth Txn-to-EMI starts from the auth file (IBL only); Txn-to-EMI starts
+  // from the settled transaction.
+  if(type==='Auth') return ['AUTH_RECEIVED','CONSENT_REQUESTED','CONSENT_GIVEN','SETTLEMENT_RECEIVED','RECON_MATCHED','BOOKING_INITIATED'];
+  if(type==='Single') return ['SETTLEMENT_RECEIVED','CONSENT_REQUESTED','CONSENT_GIVEN','BOOKING_INITIATED'];
+  // Multi (Multi-Txn-to-EMI)
   return bank==='IBL'
     ? ['AUTH_RECEIVED','CONSENT_REQUESTED','CONSENT_GIVEN','SETTLEMENT_RECEIVED','RECON_MATCHED','BOOKING_INITIATED']
     : ['SETTLEMENT_RECEIVED','CONSENT_REQUESTED','CONSENT_GIVEN','BOOKING_INITIATED'];
@@ -1744,7 +1751,7 @@ function fmtRateN(numerator, denominator){
 
 /* ---------------- Mock data ---------------- */
 const CASES = [
-  { id:'TEMI-30142', bank:'IBL', customer:'Aarav Mehta', type:'Single', channel:'SMS', campaign:'Festive EMI Push', amount:48500, state:'BOOKED',
+  { id:'TEMI-30142', bank:'IBL', customer:'Aarav Mehta', type:'Auth', channel:'SMS', campaign:'Festive EMI Push', amount:48500, state:'BOOKED',
     stamps:{AUTH_RECEIVED:'05 Aug, 09:12', CONSENT_REQUESTED:'05 Aug, 09:15', CONSENT_GIVEN:'05 Aug, 14:40', SETTLEMENT_RECEIVED:'06 Aug, 02:10', RECON_MATCHED:'06 Aug, 03:00', BOOKING_INITIATED:'06 Aug, 03:05', BOOKED:'07 Aug, 11:00'},
     nudge:{name:'Festive EMI Push', channel:'SMS', sent:'05 Aug, 09:15', delivered:'05 Aug, 09:16', clicked:'05 Aug, 14:38'} },
 
@@ -1761,11 +1768,11 @@ const CASES = [
     stamps:{ELIGIBILITY_CHECKED:'06 Aug, 10:00', CONSENT_REQUESTED:'06 Aug, 10:05', CONSENT_GIVEN:'06 Aug, 15:12', EMI_REQUESTED:'06 Aug, 15:14', BOOKING_FILE_SENT:'06 Aug, 15:45'},
     nudge:{name:'OS-to-EMI Cross-sell', channel:'WhatsApp', sent:'06 Aug, 10:05', delivered:'06 Aug, 10:05', clicked:'06 Aug, 15:10'} },
 
-  { id:'TEMI-30170', bank:'IBL', customer:'Simran Kaur', type:'Single', channel:'SMS', campaign:'Festive EMI Push', amount:21400, state:'PENDING',
+  { id:'TEMI-30170', bank:'IBL', customer:'Simran Kaur', type:'Auth', channel:'SMS', campaign:'Festive EMI Push', amount:21400, state:'PENDING',
     stamps:{AUTH_RECEIVED:'07 Aug, 06:00', CONSENT_REQUESTED:'07 Aug, 06:05', CONSENT_GIVEN:'07 Aug, 09:40'},
     nudge:{name:'Festive EMI Push', channel:'SMS', sent:'07 Aug, 06:05', delivered:'07 Aug, 06:06', clicked:'07 Aug, 09:38'} },
 
-  { id:'TEMI-30111', bank:'IBL', customer:'Ananya Iyer', type:'Single', channel:'SMS', campaign:'Electronics Category Push', amount:15600, state:'FAILED',
+  { id:'TEMI-30111', bank:'IBL', customer:'Ananya Iyer', type:'Auth', channel:'SMS', campaign:'Electronics Category Push', amount:15600, state:'FAILED',
     stamps:{AUTH_RECEIVED:'02 Aug, 09:00', CONSENT_REQUESTED:'02 Aug, 09:05', CONSENT_GIVEN:'02 Aug, 20:00', SETTLEMENT_RECEIVED:'03 Aug, 03:00', RECON_MATCHED:'03 Aug, 03:30', BOOKING_INITIATED:'03 Aug, 04:00', FAILED:'03 Aug, 04:10'},
     nudge:{name:'Electronics Category Push', channel:'SMS', sent:'02 Aug, 09:05', delivered:'02 Aug, 09:06', clicked:'02 Aug, 19:58'},
     failReason:'Credit limit insufficient at booking' },
@@ -1791,11 +1798,11 @@ const CASES = [
     nudge:{name:'Settled Txn Nudge', channel:'WhatsApp', sent:'02 Aug, 20:02', delivered:'02 Aug, 20:03', clicked:'03 Aug, 06:58'},
     failReason:'Bank-side eligibility rejected at booking' },
 
-  { id:'TEMI-30215', bank:'IBL', customer:'Neha Kapoor', type:'Single', channel:'SMS', campaign:'Furniture Category Push', amount:34200, state:'EXPIRED',
+  { id:'TEMI-30215', bank:'IBL', customer:'Neha Kapoor', type:'Auth', channel:'SMS', campaign:'Furniture Category Push', amount:34200, state:'EXPIRED',
     stamps:{AUTH_RECEIVED:'27 Jul, 10:00', CONSENT_REQUESTED:'27 Jul, 10:05', CONSENT_GIVEN:'27 Jul, 18:40', EXPIRED:'03 Aug, 10:00'},
     nudge:{name:'Furniture Category Push', channel:'SMS', sent:'27 Jul, 10:05', delivered:'27 Jul, 10:06', clicked:'27 Jul, 18:38'} },
 
-  { id:'TEMI-30221', bank:'IBL', customer:'Sameer Joshi', type:'Single', channel:'WhatsApp', campaign:'Festive EMI Push', amount:19800, state:'REJECTED',
+  { id:'TEMI-30221', bank:'IBL', customer:'Sameer Joshi', type:'Auth', channel:'WhatsApp', campaign:'Festive EMI Push', amount:19800, state:'REJECTED',
     stamps:{AUTH_RECEIVED:'06 Aug, 09:30', CONSENT_REQUESTED:'06 Aug, 09:35', CONSENT_GIVEN:'06 Aug, 12:10', REJECTED:'07 Aug, 04:15'},
     nudge:{name:'Festive EMI Push', channel:'WhatsApp', sent:'06 Aug, 09:35', delivered:'06 Aug, 09:36', clicked:'06 Aug, 12:08'} },
 
@@ -1814,6 +1821,7 @@ const CASES = [
 // so OS-to-EMI / Txn-to-EMI / Multi-Txn-to-EMI are always clearly distinguished.
 const TYPE_META = {
   Single:      {label:'Txn-to-EMI',        badge:'info'},
+  Auth:        {label:'Auth Txn-to-EMI',   badge:'gray'},
   Multi:       {label:'Multi-Txn-to-EMI',  badge:'purple'},
   Outstanding: {label:'OS-to-EMI',         badge:'warning'},
 };
@@ -2113,7 +2121,7 @@ function generateCases(count){
     // between two independent gates that share the same loop counter. 5 is
     // coprime with both 2 (bank) and 9 (Multi), so this one doesn't repeat
     // the mistake.
-    const type = i%9===0 ? 'Multi' : (i%5===0 ? 'Outstanding' : 'Single');
+    const type = i%9===0 ? 'Multi' : (i%5===0 ? 'Outstanding' : (bank==='IBL' ? 'Auth' : 'Single'));
     const outcome = type==='Multi' ? (multiSeed%11===0 ? 'PARTIAL' : pick(outcomeCycle, multiSeed)) : pick(outcomeCycle, i);
     if(type==='Multi') multiSeed++;
     // Hashed, not a plain pick(arr,i) — FIRST.length=30 and LAST.length=20
@@ -2238,13 +2246,9 @@ CASES.push(...generateCases(3200));
 // Recon Matched as not-yet-reached for these cases rather than N/A, a known
 // minor display gap, not a rendering bug (the underlying stamps are simply
 // absent, same as any case that hasn't reached a stage yet).
-// Shared with the Conversion Funnel (renderAnalytics) — both branches of
-// the same Txn-to-EMI/Multi-Txn-to-EMI journey need the same source of
-// truth for the settled-direct path's (shorter) stage order.
-const SETTLED_DIRECT_STAGE_ORDER = ['SETTLEMENT_RECEIVED','CONSENT_REQUESTED','CONSENT_GIVEN','BOOKING_INITIATED'];
 function generateSettledDirectIBLCases(count){
   const out = [];
-  const shortOrder = SETTLED_DIRECT_STAGE_ORDER;
+  const shortOrder = stagesFor('IBL','Single');
   const outcomeCycle = ['BOOKED','BOOKED','BOOKED','BOOKED','IN_FLIGHT','FAILED','BOOKED'];
   for(let i=0;i<count;i++){
     const type = i%6===0 ? 'Multi' : 'Single';
@@ -2365,6 +2369,9 @@ function generateSettledDirectIBLCases(count){
 // same fixed Aug 3-20 date window (day range is a mod-18 cycle, doesn't
 // grow with count).
 CASES.push(...generateSettledDirectIBLCases(700));
+// Switch (card-processor) account number — derived from accountId so the
+// same account always maps to the same number.
+CASES.forEach(c=>{ c.switchAccountNumber = String(4000000000000000 + Number(c.accountId.replace(/\D/g,''))*7919); });
 
 /* ---------------- State ---------------- */
 let viewingAs = 'IBL';
@@ -2575,14 +2582,14 @@ function renderRequests(){
   const state = document.getElementById('fState').value;
   const channel = document.getElementById('fChannel').value;
   const ids = el => document.getElementById(el).value.toLowerCase().split(',').map(t=>t.trim()).filter(Boolean);
-  const attemptIds = ids('fAttemptIds'), accountIds = ids('fAccountIds');
+  const accountIds = ids('fAccountIds'), switchNos = ids('fSwitchAccountNos');
   const stuckOnly = document.getElementById('fStuck').checked;
 
   let rows = scopedCases().filter(c=>{
     if(state && c.state!==state) return false;
     if(channel && c.channel!==channel) return false;
-    if(attemptIds.length && !attemptIds.some(t=>c.id.toLowerCase().includes(t))) return false;
     if(accountIds.length && !accountIds.some(t=>c.accountId.toLowerCase().includes(t))) return false;
+    if(switchNos.length && !switchNos.some(t=>c.switchAccountNumber.includes(t))) return false;
     // "Stuck" only ever applies to a case still waiting to resolve — a
     // terminal state (Booked/Failed/Expired/Rejected/Partial) is done,
     // not stuck, regardless of how long ago it resolved.
@@ -2615,7 +2622,7 @@ function renderRequests(){
     // "Booking Initiated" on the next look arbitrary — same stage label
     // means stage 4-of-6 on one path and stage 1-of-4 on the other. Only
     // label it where that ambiguity actually exists.
-    const dualPath = c.bank==='IBL' && (c.type==='Single'||c.type==='Multi');
+    const dualPath = c.bank==='IBL' && c.type==='Multi';
     const entryPathLabel = dualPath ? `<br><span style="color:var(--gray-500);font-size:11.5px;">${c.entryPath==='settled'?'Settled-Direct':'Auth-Triggered'}</span>` : '';
     return `<tr onclick="openDrawer('${c.id}')">
       <td class="mono">${c.id}</td>
@@ -2633,7 +2640,7 @@ function renderRequests(){
 function clearFilters(){
   document.getElementById('fState').value='';
   document.getElementById('fChannel').value='';
-  document.getElementById('fAttemptIds').value='';
+  document.getElementById('fSwitchAccountNos').value='';
   document.getElementById('fAccountIds').value='';
   document.getElementById('fStuck').checked=false;
   requestsPage = 1;
@@ -2651,9 +2658,9 @@ function openDrawer(id){
   // Customer-facing timeline only — internal stages (Eligibility, Recon,
   // Booking File, etc.) stay in `stamps` for analytics but aren't shown.
   // Stages outside this case's flow (stagesFor) are dropped, so OS-to-EMI
-  // never shows Auth/Settlement and Yes Bank txn cases never show Auth.
+  // and Txn-to-EMI show only Consent Requested/Given → Bank Confirmed.
   const flow = stagesFor(c.bank, c.type);
-  const order = ['AUTH_RECEIVED','CONSENT_REQUESTED','CONSENT_GIVEN','SETTLEMENT_RECEIVED'].filter(s=>flow.includes(s));
+  const order = ['AUTH_RECEIVED','CONSENT_REQUESTED','CONSENT_GIVEN','SETTLEMENT_RECEIVED'].filter(s=>flow.includes(s) && !(c.type==='Single' && s==='SETTLEMENT_RECEIVED'));
   // Sorted by time, not fixed order — Yes Bank's settlement lands before consent.
   const stamped = order.filter(s=>c.stamps[s]).sort((x,y)=>parseStamp(c.stamps[x])-parseStamp(c.stamps[y]));
   const steps = [...stamped, ...order.filter(s=>!c.stamps[s])];
@@ -2729,6 +2736,7 @@ function openDrawer(id){
         <div><div class="meta-label">Product</div><div class="meta-value"><span class="badge ${TYPE_META[c.type].badge}">${TYPE_META[c.type].label}</span></div></div>
         <div><div class="meta-label">Amount</div><div class="meta-value">₹${c.amount.toLocaleString('en-IN')}</div></div>
         <div><div class="meta-label">Status</div><div class="meta-value"><span class="badge ${meta.badge}">${meta.label}</span></div></div>
+        <div><div class="meta-label">Switch Account No.</div><div class="meta-value mono">${c.switchAccountNumber}</div></div>
         <div><div class="meta-label">Bank Txn Ref</div><div class="meta-value mono">${c.bankTxnRef||'—'}</div></div>
       </div>
 
@@ -2848,7 +2856,7 @@ function openJourneyModal(id){
 // IBL is file-based for OS-to-EMI and hybrid (file+API) for Txn/Multi-Txn;
 // Yes Bank is API-based across the board.
 const INTEGRATION_MODE = {
-  IBL: { Outstanding:'File-based', Single:'Hybrid', Multi:'Hybrid' },
+  IBL: { Outstanding:'File-based', Single:'Hybrid', Auth:'Hybrid', Multi:'Hybrid' },
   YES: { Outstanding:'API-based', Single:'API-based', Multi:'API-based' },
 };
 
@@ -3998,7 +4006,7 @@ function chipGroup(key, options, scopeVar){
 }
 const PROGRAM_OPTIONS = { 'IndusInd Bank (IBL)':['Platinum Aura','Signature Rewards'], 'Yes Bank':['Prosperity Card'] };
 const LABEL_OPTIONS = ['EMI','Festive','Cross-Sell','Journey','Milestone','Risk','Activation','Event-Based'];
-const JOURNEY_OPTIONS = ['Txn-to-EMI','Multi-Txn-to-EMI','OS-to-EMI','Onboarding','Card Activation'];
+const JOURNEY_OPTIONS = ['Txn-to-EMI','Auth Txn-to-EMI','Multi-Txn-to-EMI','OS-to-EMI','Onboarding','Card Activation'];
 const BATCH_OPTIONS = ['Aug Festive Batch','Sep Reactivation Batch','Q3 Consolidation Batch'];
 // Which flow a customer completed a triggering action through — PWA (the
 // standalone in-PWA experience) or one of the real journey types this file
@@ -4153,7 +4161,7 @@ const ELIGIBILITY_META = {
   },
   'EMI Request': {
     'New Status':   {type:'select', options:['Pending','Successful','Failed','Expired','Rejected']},
-    'Product Type': {type:'select', options:['Single-Txn','Multi-Txn','Outstanding']},
+    'Product Type': {type:'select', options:['Single-Txn','Auth-Txn','Multi-Txn','Outstanding']},
     // Same Source concept as Transaction's own — an EMI request's
     // resolution is itself downstream of whichever flow the customer
     // completed the booking action through.

@@ -82,7 +82,7 @@ export const EVENT_CATEGORIES: Record<string, EventCategoryMeta> = {
 };
 
 // Which flow a customer completed a triggering action through.
-export const JOURNEY_OPTIONS = ['Txn-to-EMI', 'Multi-Txn-to-EMI', 'OS-to-EMI', 'Onboarding', 'Card Activation'];
+export const JOURNEY_OPTIONS = ['Txn-to-EMI', 'Auth Txn-to-EMI', 'Multi-Txn-to-EMI', 'OS-to-EMI', 'Onboarding', 'Card Activation'];
 export const EVENT_SOURCE_OPTIONS = ['PWA', ...JOURNEY_OPTIONS];
 
 // Real, authoritative `TransactionType` enum — every value except the 2
@@ -148,7 +148,7 @@ export const ELIGIBILITY_META: Record<string, Record<string, AttrMeta>> = {
   },
   'EMI Request': {
     'New Status': { type: 'select', options: ['Pending', 'Successful', 'Failed', 'Expired', 'Rejected'] },
-    'Product Type': { type: 'select', options: ['Single-Txn', 'Multi-Txn', 'Outstanding'] },
+    'Product Type': { type: 'select', options: ['Single-Txn', 'Auth-Txn', 'Multi-Txn', 'Outstanding'] },
     Source: { type: 'select', options: EVENT_SOURCE_OPTIONS },
   },
 };
