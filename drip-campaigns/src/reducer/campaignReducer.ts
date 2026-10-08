@@ -74,7 +74,7 @@ export function dcConfirmAddNode(graph: DripGraph, type: DcNodeType, p: any, add
     // The event firing at all is only "success" when it's unambiguous
     // (Card Activated, RP Redeemed). For anything with a real outcome
     // attribute (EMI Request's New Status — Successful/Failed/Expired/
-    // Cancelled all fire the SAME event), auto-exiting straight to
+    // Rejected all fire the SAME event), auto-exiting straight to
     // Goal-Based Exit would silently mislabel a Failed resolution as
     // success — auto-insert a real outcome check instead.
     const entity = DC_EVENT_ENTITY[p.eventCategory];

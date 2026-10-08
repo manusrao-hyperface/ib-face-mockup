@@ -147,7 +147,7 @@ export const ELIGIBILITY_META: Record<string, Record<string, AttrMeta>> = {
     'Initiated By': { type: 'select', options: ['CUSTOMER_INITIATED', 'SYSTEM_GENERATED'] },
   },
   'EMI Request': {
-    'New Status': { type: 'select', options: ['Pending', 'Successful', 'Failed', 'Expired', 'Cancelled'] },
+    'New Status': { type: 'select', options: ['Pending', 'Successful', 'Failed', 'Expired', 'Rejected'] },
     'Product Type': { type: 'select', options: ['Single-Txn', 'Multi-Txn', 'Outstanding'] },
     Source: { type: 'select', options: EVENT_SOURCE_OPTIONS },
   },
