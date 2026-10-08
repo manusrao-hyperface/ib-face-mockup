@@ -601,6 +601,12 @@
   .id-chip:hover{background:var(--info-bg);border-color:var(--blue-cta);}
   .id-chip .id-key{color:var(--gray-500);font-weight:500;margin-right:2px;}
   .id-chip svg{width:11px;height:11px;flex-shrink:0;}
+  /* Long ids: truncated with an ellipsis, full value in a hover bubble. */
+  .idt{display:inline-block;max-width:14ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom;}
+  .idt.fill{display:block;max-width:100%;}
+  #idBubble{position:fixed;z-index:200;display:none;max-width:420px;padding:6px 10px;border-radius:8px;
+    background:var(--neutral-900);color:#fff;font:12px/1.4 ui-monospace,monospace;word-break:break-all;
+    box-shadow:0 6px 16px rgba(16,24,40,.18);pointer-events:none;}
 
   /* Real ironbank-face surfaces confirmations via WarningToast/SuccessToast
      everywhere, never native alert() — one shared toast, reused for every
@@ -884,7 +890,6 @@
         <table>
           <thead>
             <tr>
-              <th>Request ID</th>
               <th>Customer</th>
               <th>Product</th>
               <th>Channel / Batch</th>
@@ -1404,6 +1409,7 @@
 
 <!-- ============ TOAST STACK ============ -->
 <div id="toastStack"></div>
+<div id="idBubble"></div>
 
 <script>
 /* ---------------- Line icons (lucide-style, hand-drawn minimal) ---------------- */
@@ -1825,10 +1831,16 @@ const TYPE_META = {
   Multi:       {label:'Multi-Txn-to-EMI',  badge:'purple'},
   Outstanding: {label:'OS-to-EMI',         badge:'warning'},
 };
-function journeyIdFor(name){
-  let h=0; for(let i=0;i<name.length;i++){ h = (h*31 + name.charCodeAt(i)) >>> 0; }
-  return 'JRN-'+(h%90000+10000);
+// Deterministic random-looking id body, modelled on real emi_attempt ids
+// (emi_att_1fa09b9f04f279db, acc_ca_HYPFxOZt0Y7bwHLQD28, ...).
+const HEX_CHARS = '0123456789abcdef';
+const ALNUM_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+function fakeId(key, len, chars){
+  let h = hashCode(key), out = '';
+  for(let i=0;i<len;i++){ h = intHash(h+i); out += chars[h % chars.length]; }
+  return out;
 }
+function journeyIdFor(name){ return 'bat_'+fakeId(name, 16, HEX_CHARS); }
 
 // Customer/offer group-by dimensions — not in the Master PRD, not
 // previously modeled anywhere in this file. Credit limit/state/age are
@@ -1905,16 +1917,13 @@ const PROGRAMS = {
     {id:'PRG-YES-1220', name:'Yes Bank Premia'},
   ],
 };
+Object.values(PROGRAMS).flat().forEach(p=>{ p.id = 'ccp_HYP'+fakeId(p.id, 16, ALNUM_CHARS); });
 let __seq = 100;
 CASES.forEach((c,i)=>{
   __seq += 7;
   c.customerId = 'CUST-'+(118000+__seq);
   c.accountId  = 'ACC-'+(778000+__seq);
   c.journeyId  = journeyIdFor(c.campaign);
-  // Bank-side reference (RRN-style) — what a support agent or the bank
-  // actually has on hand from a customer call, unlike our own internal
-  // TEMI-/YEMI- case ID. Requests search (Section 6) matches on this too.
-  c.bankTxnRef = String(240800000000 + __seq*37).slice(0,12);
   const progs = PROGRAMS[c.bank];
   const p = progs[i % progs.length];
   c.programId = p.id;
@@ -2152,7 +2161,6 @@ function generateCases(count){
       accountId:'ACC-'+(780500+i*13),
       programId:prog.id, programName:prog.name,
       journeyId: journeyIdFor(campaign),
-      bankTxnRef: String(241100000000 + i*4127).slice(0,12),
     };
     c.nudgeReach = computeNudgeReach(c.id+'|reach');
     const custSeed = seedFromId(c.customerId);
@@ -2336,7 +2344,6 @@ function generateSettledDirectIBLCases(count){
       accountId:'ACC-'+(789000+i*13),
       programId:PROGRAMS.IBL[i%PROGRAMS.IBL.length].id, programName:PROGRAMS.IBL[i%PROGRAMS.IBL.length].name,
       journeyId: journeyIdFor(campaign),
-      bankTxnRef: String(241900000000 + i*5309).slice(0,12),
       ...(state==='FAILED' ? {failReason: pick(['Credit limit insufficient at booking','Bank-side eligibility rejected at booking'], i)} : {}),
     };
     c.nudgeReach = computeNudgeReach(c.id+'|reach');
@@ -2371,7 +2378,52 @@ function generateSettledDirectIBLCases(count){
 CASES.push(...generateSettledDirectIBLCases(700));
 // Switch (card-processor) account number — derived from accountId so the
 // same account always maps to the same number.
-CASES.forEach(c=>{ c.switchAccountNumber = String(4000000000000000 + Number(c.accountId.replace(/\D/g,''))*7919); });
+
+// Transaction details (txn-based products) and EMI configs — deterministic
+// per case. Some fields are deliberately left null so the drawer's "-"
+// fallback is exercised.
+const MERCHANTS = [
+  {mcc:'5732', description:'CROMA'}, {mcc:'4722', description:'MAKEMYTRIP'},
+  {mcc:'5651', description:'MYNTRA'}, {mcc:'5712', description:'PEPPERFRY'},
+  {mcc:'8062', description:'APOLLO HOSPITALS'}, {mcc:'8220', description:'BYJUS'},
+  {mcc:'5812', description:'SWIGGY'}, {mcc:'5722', description:'RELIANCE DIGITAL'},
+];
+const ledgerTxn = key => ({id:'ldgr_'+fakeId(key, 14, ALNUM_CHARS), ...MERCHANTS[intHash(hashCode(key)) % MERCHANTS.length]});
+function stampDate(d){ return d ? `${String(d.getDate()).padStart(2,'0')} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()]} 2026` : null; }
+CASES.forEach(c=>{
+  // Hashed — case ids step by 3 in places, so a raw id%3 lands on one value.
+  const seed = intHash(seedFromId(c.id));
+  if(c.type!=='Outstanding'){
+    // Auth path: the txn is the auth itself. Settled path: the purchase
+    // happened the day before settlement.
+    const settled = parseStamp(c.stamps.SETTLEMENT_RECEIVED);
+    c.txnDate = stampDate(parseStamp(c.stamps.AUTH_RECEIVED) || (settled && new Date(settled - 864e5)));
+    // Multi bundles several ledger txns; the others carry one.
+    if(c.txns) c.txns.forEach(t=>Object.assign(t, ledgerTxn(t.id)));
+    else c.txn = ledgerTxn(c.id);
+  }
+  c.incentiveIds = seed%3===0 ? [] : ['inc_'+fakeId(c.id+'|inc1', 16, HEX_CHARS), ...(seed%5===0 ? ['inc_'+fakeId(c.id+'|inc2', 16, HEX_CHARS)] : [])];
+  // Booking config is always present; the original config may be missing.
+  // emi_config_id only exists on OS-to-EMI journeys.
+  const original = {
+    rate_of_interest: c.interestRateOffered ?? null,
+    processing_fee: c.processingFeeOffered ?? null,
+    preclosure_fee: seed%4===0 ? null : [1,2,3][seed%3],
+    emi_strategy_id: 'emi_str_idHYP'+fakeId('str'+seed%25, 12, ALNUM_CHARS),
+    ...(c.type==='Outstanding' ? {emi_config_id: 'emi_cfg_idHYP'+fakeId(c.id+'|cfg', 12, ALNUM_CHARS)} : {}),
+  };
+  // Each incentive knocks 1% off the booked rate.
+  const booking = {...original, rate_of_interest: original.rate_of_interest==null ? null : original.rate_of_interest - c.incentiveIds.length};
+  if(c.type==='Outstanding' && c.incentiveIds.length) booking.emi_config_id = 'emi_cfg_idHYP'+fakeId(c.id+'|cfg2', 12, ALNUM_CHARS);
+  c.emiConfig = { original: seed%7===0 ? null : original, booking };
+  // Real-format ids last — everything above is seeded off the old ones.
+  c.switchAccountNumber = '000'+fakeId(c.accountId+'|switch', 19, '0123456789');
+  c.accountId = 'acc_ca_HYP'+fakeId(c.accountId, 16, ALNUM_CHARS);
+  // HF EMI Ref — the emi_ref_id on the emi_attempt row, a v4-style UUID.
+  const h = fakeId(c.id+'|ref', 32, HEX_CHARS);
+  c.emiRefId = `${h.slice(0,8)}-${h.slice(8,12)}-4${h.slice(13,16)}-${'89ab'[parseInt(h[16],16)%4]}${h.slice(17,20)}-${h.slice(20)}`;
+  c.id = 'emi_att_'+fakeId(c.id, 16, HEX_CHARS);
+});
 
 /* ---------------- State ---------------- */
 let viewingAs = 'IBL';
@@ -2625,7 +2677,6 @@ function renderRequests(){
     const dualPath = c.bank==='IBL' && c.type==='Multi';
     const entryPathLabel = dualPath ? `<br><span style="color:var(--gray-500);font-size:11.5px;">${c.entryPath==='settled'?'Settled-Direct':'Auth-Triggered'}</span>` : '';
     return `<tr onclick="openDrawer('${c.id}')">
-      <td class="mono">${c.id}</td>
       <td>${c.customer}</td>
       <td><span class="badge ${tm.badge}">${tm.label}</span>${entryPathLabel}</td>
       <td>${c.channel}<br><span style="color:var(--gray-500);font-size:11.5px;">${c.campaign}</span></td>
@@ -2695,6 +2746,41 @@ function openDrawer(id){
       </div>
     </div>`;
 
+  const dash = v => (v===null || v===undefined || v==='') ? '-' : v;
+  // Transaction details — one row per transaction (Multi bundles several).
+  const txnRows = c.type==='Outstanding' ? [] : (c.txns || [c.txn]).map(t=>({...t, date:c.txnDate}));
+  const txnDetailsHtml = txnRows.length ? `
+      <p class="section-title">Transaction${txnRows.length>1?'s':''}</p>
+      ${txnRows.map(t=>`<div class="drawer-meta-grid" style="margin-bottom:10px;">
+        <div style="grid-column:1/-1;min-width:0;"><div class="meta-label">Txn ID</div><div class="meta-value mono">${idt(t.id, true)}</div></div>
+        <div style="grid-column:1/-1;min-width:0;"><div class="meta-label">Description</div><div class="meta-value">${idt(t.description, true)}</div></div>
+        <div><div class="meta-label">MCC</div><div class="meta-value">${dash(t.mcc)}</div></div>
+        <div><div class="meta-label">Txn Date</div><div class="meta-value">${dash(t.date)}</div></div>
+      </div>`).join('')}
+      <div style="margin-bottom:12px;"></div>` : '';
+
+  const cfg = c.emiConfig || {};
+  const num = v => v===null || v===undefined ? '-' : Number(v).toFixed(2);
+  const cfgFields = [
+    ['Rate of Interest', 'rate_of_interest', num],
+    ['Processing Fee', 'processing_fee', num],
+    ['Preclosure Fee', 'preclosure_fee', num],
+    ['EMI Strategy ID', 'emi_strategy_id', idt],
+    // Only OS-to-EMI journeys carry an EMI config id.
+    ...(c.type==='Outstanding' ? [['EMI Config ID', 'emi_config_id', idt]] : []),
+  ];
+  const emiConfigHtml = `
+      <p class="section-title">EMI Config</p>
+      <div class="txn-table"><div class="table-wrap"><table>
+        <thead><tr><th></th><th>Original</th><th>Booking</th></tr></thead>
+        <tbody>${cfgFields.map(([label,key,fmt])=>`<tr><td style="white-space:nowrap;">${label}</td><td class="mono">${fmt(cfg.original?.[key])}</td><td class="mono">${fmt(cfg.booking?.[key])}</td></tr>`).join('')}
+        </tbody>
+      </table></div></div>
+      <p class="section-title">Incentives</p>
+      <div class="id-row" style="flex-direction:column;align-items:flex-start;">${(c.incentiveIds||[]).length
+        ? c.incentiveIds.map(id=>`<a class="id-chip" href="/incentives/${id}" target="_blank" rel="noopener">${id}<span>↗</span></a>`).join('')
+        : '<span class="meta-value">-</span>'}</div>`;
+
   let txnHtml = '';
   if(c.txns){
     txnHtml = `<div class="txn-table">
@@ -2704,7 +2790,7 @@ function openDrawer(id){
           <thead><tr><th>Txn ID</th><th>Amount</th><th>Billed</th><th>Status</th></tr></thead>
           <tbody>
             ${c.txns.map(t=>`<tr>
-              <td class="mono">${t.id}</td>
+              <td class="mono">${idt(t.id)}</td>
               <td>₹${t.amount.toLocaleString('en-IN')}</td>
               <td>${t.billed?'Billed':'Unbilled'}</td>
               <td><span class="badge ${t.status==='BOOKED'?'success':t.status==='FAILED'?'error':'gray'}">${t.status}${t.reason?' · '+t.reason:''}</span></td>
@@ -2725,7 +2811,7 @@ function openDrawer(id){
         <button class="drawer-close" onclick="closeDrawer()">×</button>
       </div>
 
-      <div class="id-row">
+      <div class="id-row" style="flex-direction:column;align-items:flex-start;">
         <a class="id-chip" href="/customers/accounts/${c.accountId}" target="_blank" rel="noopener"><span class="id-key">Account</span>${c.accountId}<span>↗</span></a>
         <a class="id-chip" href="/programs/${c.programId}" target="_blank" rel="noopener"><span class="id-key">Program</span>${c.programId}<span>↗</span></a>
         <a class="id-chip" href="?page=jb-list"><span class="id-key">Batch</span>${c.journeyId}<span>↗</span></a>
@@ -2736,8 +2822,8 @@ function openDrawer(id){
         <div><div class="meta-label">Product</div><div class="meta-value"><span class="badge ${TYPE_META[c.type].badge}">${TYPE_META[c.type].label}</span></div></div>
         <div><div class="meta-label">Amount</div><div class="meta-value">₹${c.amount.toLocaleString('en-IN')}</div></div>
         <div><div class="meta-label">Status</div><div class="meta-value"><span class="badge ${meta.badge}">${meta.label}</span></div></div>
-        <div><div class="meta-label">Switch Account No.</div><div class="meta-value mono">${c.switchAccountNumber}</div></div>
-        <div><div class="meta-label">Bank Txn Ref</div><div class="meta-value mono">${c.bankTxnRef||'—'}</div></div>
+        <div style="grid-column:1/-1;"><div class="meta-label">Switch Account No.</div><div class="meta-value mono">${dash(c.switchAccountNumber)}</div></div>
+        <div style="grid-column:1/-1;"><div class="meta-label">HF EMI Ref</div><div class="meta-value mono">${dash(c.emiRefId)}</div></div>
       </div>
 
       ${(c.state==='FAILED' && c.failReason==='Settlement amount mismatch' && !c.mismatchResolved) ? `
@@ -2751,10 +2837,14 @@ function openDrawer(id){
         </div>
       ` : ''}
 
+      ${txnDetailsHtml}
+
       <p class="section-title">Journey Timeline</p>
       <div class="stepper">${stepsHtml}</div>
 
       ${txnHtml}
+
+      ${emiConfigHtml}
 
       <p class="section-title">Nudge Correlation</p>
       <div class="nudge-block">
@@ -2824,6 +2914,22 @@ function closeSideDrawer(){
 // Shared toast — replaces alert() for every "duplicated"/"saved" style
 // confirmation, matching real ironbank-face's SuccessToast/WarningToast
 // used throughout instead of native browser alerts.
+// fill=true truncates at the available width instead of a fixed length.
+function idt(v, fill){ return v==null || v==='' ? '-' : `<span class="idt${fill?' fill':''}" data-full="${v}">${v}</span>`; }
+// One shared bubble, position:fixed so drawer/table overflow can't clip it.
+// Only shown when the id is actually truncated.
+document.addEventListener('mouseover', e=>{
+  const b = document.getElementById('idBubble');
+  const el = e.target.closest && e.target.closest('.idt');
+  if(!el || el.scrollWidth<=el.clientWidth){ b.style.display='none'; return; }
+  b.textContent = el.dataset.full;
+  b.style.display = 'block';
+  const r = el.getBoundingClientRect();
+  b.style.left = Math.max(8, Math.min(r.left, innerWidth-b.offsetWidth-8))+'px';
+  b.style.top = (r.bottom+6)+'px';
+});
+document.addEventListener('scroll', ()=>{ document.getElementById('idBubble').style.display='none'; }, true);
+
 function showToast(message, type){
   const stack = document.getElementById('toastStack');
   const el = document.createElement('div');
@@ -2840,7 +2946,7 @@ function openJourneyModal(id){
     <div class="modal-eyebrow">Portfolio-growth → Journeys → Batch Creation</div>
     <div class="modal-head"><div class="modal-title">${c.campaign}</div><button class="drawer-close" onclick="closeModal()">×</button></div>
     <div class="modal-grid" style="margin-top:14px;">
-      <div><div class="meta-label">Journey ID</div><div class="meta-value mono">${c.journeyId}</div></div>
+      <div><div class="meta-label">Journey ID</div><div class="meta-value mono">${idt(c.journeyId)}</div></div>
       <div><div class="meta-label">Journey Type</div><div class="meta-value"><span class="badge ${tm.badge}">${tm.label}</span></div></div>
       <div><div class="meta-label">Channel</div><div class="meta-value">${c.channel}</div></div>
       <div><div class="meta-label">Bank</div><div class="meta-value">${bankLabel(c.bank)}</div></div>
@@ -2927,7 +3033,7 @@ function renderBatches(){
   document.getElementById('batchesBody').innerHTML = pageRows.map(b=>{
     const tm = TYPE_META[b.type];
     return `<tr onclick="openJourneyModal('${b.cases[0].id}')">
-      <td><b>${b.name}</b><br><span class="mono" style="font-size:11px;">${b.journeyId}</span></td>
+      <td><b>${b.name}</b><br><span class="mono" style="font-size:11px;">${idt(b.journeyId)}</span></td>
       <td><span class="badge ${tm.badge}">${tm.label}</span></td>
       <td><span class="badge ${MODE_BADGE[b.mode]}">${b.mode==='Hybrid'?'Hybrid (File + API)':b.mode}</span></td>
       <td>${bankLabel(b.bank)}</td>
@@ -3459,7 +3565,7 @@ function renderAnalytics(){
   document.getElementById('nudgeCorrelationPagination').innerHTML = paginationHtml(nudgeCorrelationPage, nudgeTotalPages, 'goToNudgeCorrelationPage');
   document.getElementById('nudgeCorrelationBody').innerHTML = nudgePageRows.map(r=>`
     <tr onclick="openJourneyModal('${r.cases[0].id}')">
-      <td><b>${r.name}</b><br><span class="mono" style="font-size:11px;">${r.journeyId}</span></td>
+      <td><b>${r.name}</b><br><span class="mono" style="font-size:11px;">${idt(r.journeyId)}</span></td>
       <td>${r.channel}</td>
       <td>${r.sent.toLocaleString('en-IN')}</td>
       <td>${r.delivered.toLocaleString('en-IN')}</td>
